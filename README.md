@@ -20,7 +20,5 @@
 ## 🌐 Live Demo
 Experience the system in action:
 👉 [**Access FinSecure AI Dashboard**](https://rohitmohite084-finsecure-ai.hf.space)
-
-├── fraud_processor.py  # Kafka consumer and ML prediction logic
 ├── producer.py         # Transaction simulator
 └── README.md
