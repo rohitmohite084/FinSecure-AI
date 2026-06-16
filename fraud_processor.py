@@ -2,9 +2,10 @@ import json
 import logging
 import pandas as pd
 import joblib
+import os
 from kafka import KafkaConsumer
 
-# Logging setup: To keep detailed records of each step
+# Logging setup
 logging.basicConfig(
     level=logging.INFO, 
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -12,18 +13,23 @@ logging.basicConfig(
 logger = logging.getLogger("FraudProcessor")
 
 def load_model():
-    """Function to load the machine learning model"""
+    """Function to load the machine learning model and scaler"""
     try:
-        model = joblib.load('xgb_fraud_model.pkl')
-        logger.info("Machine Learning model loaded successfully.")
-        return model
+        model_path = os.path.join('models', 'supervised_models', 'XGBoost.pkl')
+        scaler_path = os.path.join('models', 'scaler_models', 'scaler.pkl')
+        
+        model = joblib.load(model_path)
+        scaler = joblib.load(scaler_path)
+        
+        logger.info("Machine Learning model and scaler loaded successfully.")
+        return model, scaler
     except Exception as e:
-        logger.error(f"Error loading model: {e}")
-        return None
+        logger.error(f"Error loading model or scaler: {e}")
+        return None, None
 
 def process_pipeline():
-    model = load_model()
-    if not model:
+    model, scaler = load_model()
+    if not model or not scaler:
         return
 
     # Initialize Kafka Consumer
@@ -38,17 +44,22 @@ def process_pipeline():
     for message in consumer:
         transaction = message.value
         try:
-            # Creating DataFrame
-            df = pd.DataFrame([transaction])
+            model_features = {
+                'Transaction_Amount': transaction['Transaction_Amount'],
+                'hour': transaction['hour'],
+                'loc_idx': transaction['loc_idx'],
+                'dev_idx': transaction['dev_idx'],
+                'Daily_Transaction_Count': transaction['Daily_Transaction_Count']
+            }
             
-            # Prediction and Probability
-            prob = model.predict_proba(df)[0][1]
+            df = pd.DataFrame([model_features])
+            scaled_data = scaler.transform(df)
+            prob = model.predict_proba(scaled_data)[0][1]
             
-            # 95% probability threshold (for higher accuracy)
             if prob > 0.95:
-                logger.warning(f"!!! FRAUD DETECTED !!! | ID: {transaction['transaction_id']} | Confidence: {prob:.2f}")
+                logger.warning(f"!!! FRAUD DETECTED !!! | ID: {transaction.get('transaction_id')} | Confidence: {prob:.2f}")
             else:
-                logger.info(f"Transaction Secure: ID {transaction['transaction_id']} | Confidence: {prob:.2f}")
+                logger.info(f"Transaction Secure: ID {transaction.get('transaction_id')} | Confidence: {prob:.2f}")
                 
         except Exception as e:
             logger.error(f"Error during processing: {e}")
