@@ -44,7 +44,7 @@ st.sidebar.download_button("📥 Download Logs (CSV)", csv, "transaction_logs.cs
 if run_stream:
     progress_bar = st.progress(0)
     for i in range(20):
-        # Dynamic Random Logic: प्रत्येक वेळी रँडमली ठरवा (साधारण २०% प्रमाण)
+    
         if np.random.rand() < 0.20:
             amt = float(np.random.uniform(50000, 90000))
             status = "🚨 HIGH RISK (FRAUD)"
