@@ -2,17 +2,28 @@ import random
 import time
 import json
 import logging
+import joblib
+import pandas as pd
+import os
 from kafka import KafkaProducer
 
-# Logging setup: To keep track of each step
-logging.basicConfig(
-    level=logging.INFO, 
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Logging setup
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("DataProducer")
 
+def load_model():
+    model_path = os.path.join("models", "supervised_models", "XGBoost.pkl")
+    scaler_path = os.path.join("models", "scaler_models", "scaler.pkl")
+    try:
+        model = joblib.load(model_path)
+        scaler = joblib.load(scaler_path)
+        logger.info("Models loaded successfully for production.")
+        return model, scaler
+    except Exception as e:
+        logger.error(f"Error loading models: {e}")
+        return None, None
+
 def get_kafka_producer():
-    """Function to initialize Kafka Producer"""
     try:
         producer = KafkaProducer(
             bootstrap_servers=['localhost:9092'],
@@ -25,18 +36,18 @@ def get_kafka_producer():
         return None
 
 def main():
+    model, scaler = load_model()
     producer = get_kafka_producer()
-    if not producer:
+    
+    if not model or not producer:
         return
 
-    logger.info("Starting data streaming (90% Safe, 10% Fraud)...")
+    logger.info("Starting production streaming with model integration...")
     
     while True:
         try:
-            # 10% chance for fraud data generation (Real-world distribution)
             is_fraudulent = random.random() < 0.10 
             
-            # Creating transaction data
             transaction_data = {
                 "transaction_id": random.randint(10000, 99999),
                 "Transaction_Amount": float(random.uniform(45000, 80000)) if is_fraudulent else float(random.uniform(100, 5000)),
@@ -46,13 +57,23 @@ def main():
                 "Daily_Transaction_Count": random.randint(10, 20) if is_fraudulent else random.randint(1, 5)
             }
             
-            # Sending data to Kafka topic
+            features = pd.DataFrame([{
+                'Transaction_Amount': transaction_data['Transaction_Amount'],
+                'hour': transaction_data['hour'],
+                'loc_idx': transaction_data['loc_idx'],
+                'dev_idx': transaction_data['dev_idx'],
+                'Daily_Transaction_Count': transaction_data['Daily_Transaction_Count']
+            }])
+            
+            scaled_features = scaler.transform(features)
+            prediction = model.predict(scaled_features)[0]
+            
+            transaction_data['prediction_status'] = "FRAUD" if prediction == 1 else "LEGIT"
             producer.send('transaction_stream', transaction_data)
             
-            status = "FRAUD-LIKE" if is_fraudulent else "NORMAL"
-            logger.info(f"Data sent -> [ID: {transaction_data['transaction_id']}] [Status: {status}] [Amount: {transaction_data['Transaction_Amount']:.2f}]")
+            logger.info(f"Sent -> ID: {transaction_data['transaction_id']} | Status: {transaction_data['prediction_status']} | Amount: {transaction_data['Transaction_Amount']:.2f}")
             
-            time.sleep(2) # 2-second gap
+            time.sleep(2)
             
         except KeyboardInterrupt:
             logger.info("Stopping producer...")
